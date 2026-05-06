@@ -1,0 +1,51 @@
+broker:
+  text:
+    pub_port: 7501
+    pull_port: 7502
+  audio:
+    pub_port: 7503
+    pull_port: 7504
+  video:
+    pub_port: 7505
+    pull_port: 7506
+  control_port: 7510
+  inter_broker_base_port: 7520
+  heartbeat_base_port: 7530
+  port_stride: 100
+
+registry:
+  listen_host: 0.0.0.0
+  host: 127.0.0.1
+  port: 7500
+  heartbeat_timeout: 5.0
+
+cluster:
+  heartbeat_interval: 2.0
+  heartbeat_timeout: 5.0
+  all_rooms: [A, B, C, D, E, F, G, H, I, J, K]
+  rooms_per_broker: 4
+
+client:
+  registry_host: null
+  audio:
+    rate: 44100
+    channels: 1
+    chunk: 1024
+  video:
+    device_index: 0
+    frame_width: 640
+    frame_height: 480
+
+qos:
+  text:
+    max_retry: 5
+    retry_interval: 0.2
+    ack_timeout: 2.0
+  audio:
+    max_queue_depth: 10
+  video:
+    max_queue_depth: 3
+    base_fps: 15
+    min_fps: 5
+    jpeg_quality: 70
+    min_jpeg_quality: 30

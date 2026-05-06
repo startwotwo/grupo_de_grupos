@@ -1,0 +1,6 @@
+numpy>=1.26,<3
+opencv-python>=4.8
+PyAudio>=0.2.14
+Pillow>=10.0
+PyYAML>=6.0
+pyzmq>=25.0

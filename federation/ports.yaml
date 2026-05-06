@@ -1,0 +1,166 @@
+# Mapa canônico de portas da federação.
+# Cada grupo usa uma faixa de 100 portas a partir de sua base.
+# O SuperBroker conecta como SUB nos xpub de cada grupo.
+
+fed_registry_port: 7777
+
+super_broker:
+  txt_xsub: 8100   # clientes externos publicam texto aqui
+  txt_xpub: 8101   # clientes externos assinam texto aqui
+  aud_xsub: 8102
+  aud_xpub: 8103
+  vid_xsub: 8104
+  vid_xpub: 8105
+
+groups:
+  grupo_i:
+    dir: "Sistemas_Distribuidos_GrupoI_Entrega1"
+    registry_port: 7100
+    broker_base: 7101
+    xpub_txt: 7103
+    xpub_aud: null
+    xpub_vid: null
+    inject_port: 7102
+    inject_type: "PUB"
+    launch:
+      registry: "python registry.py --port 7100"
+      broker: "python broker.py --registry tcp://localhost:7100 --host localhost --port-base 7101"
+    env: {}
+
+  googlemeet:
+    dir: "GoogleMeet_Replica"
+    registry_port: 7200
+    broker_base: 7201
+    xpub_txt: 7202
+    xpub_aud: 7204
+    xpub_vid: 7206
+    inject_port: 7201
+    inject_type: "PUB"
+    launch:
+      registry: "python registry.py --port 7200"
+      broker: "python broker.py --id BROKER1 --pub-port 7201 --sub-port 7202 --aud-pub-port 7203 --aud-sub-port 7204 --vid-pub-port 7205 --vid-sub-port 7206 --hb-port 7207 --registry-port 7200 --cluster-txt-port 7250 --cluster-aud-port 7251 --cluster-vid-port 7252"
+    env: {}
+
+  expansion:
+    dir: "."
+    registry_port: 7300
+    broker_base: 7301
+    xpub_txt: 7306
+    xpub_aud: 7304
+    xpub_vid: 7302
+    inject_port: 7305
+    inject_type: "PUB"
+    launch:
+      registry: "python Expansion/discovery.py --port 7300"
+      broker: "python Expansion/broker.py --id FED_EXP --base-port 7301 --discovery tcp://localhost:7300"
+    env: {}
+
+  sd_trab1:
+    dir: "sd-trab1"
+    registry_port: null
+    broker_base: 7400
+    xpub_txt: 7424
+    xpub_aud: 7414
+    xpub_vid: 7404
+    inject_port: 7423
+    inject_type: "PUB"
+    launch:
+      registry: null
+      broker: "python broker.py sd_trab1_fed 7400"
+    env: {}
+
+  sd_meeting:
+    dir: "sd-meeting-app"
+    registry_port: 7500
+    broker_base: 7501
+    xpub_txt: 7501
+    xpub_aud: 7503
+    xpub_vid: 7505
+    inject_port: 7502
+    inject_type: "PUSH"
+    launch:
+      registry: "python registry.py"
+      broker: "python broker.py 0"
+    env:
+      BROKER_CONFIG: "config_fed.yaml"
+
+  t1sistemas:
+    extra_kill_ports: [5555]
+    dir: "T1SitemasDistribuidos"
+    registry_port: 7650
+    broker_base: 7601
+    xpub_txt: 7607
+    xpub_aud: 7605
+    xpub_vid: 7603
+    inject_port: 7606
+    inject_type: "PUSH"
+    launch:
+      registry: "python discovery/registry.py --port 7650"
+      broker: "python -m broker.broker --port 7601 --registry tcp://localhost:7650"
+    env: {}
+
+  trabalho1:
+    dir: "Trabalho_1_Distribuidos"
+    registry_port: null
+    broker_base: 7700
+    xpub_txt: 7715
+    xpub_aud: 7713
+    xpub_vid: 7711
+    inject_port: 7714
+    inject_type: "PUB"
+    launch:
+      broker: "python broker.py --vid-xsub 7710 --vid-xpub 7711 --aud-xsub 7712 --aud-xpub 7713 --txt-xsub 7714 --txt-xpub 7715 --ctrl-port 7716 --presence-port 7717"
+    env: {}
+
+  sd_trabalho:
+    dir: "sd-trabalho"
+    registry_port: 7800
+    broker_base: 7801
+    xpub_txt: 7802
+    xpub_aud: 7802
+    xpub_vid: 7802
+    inject_port: 7801
+    inject_type: "PUB"
+    launch:
+      registry: "python registry/registry.py"
+      broker: "python -m broker.broker"
+    env:
+      BROKER_BASE_PORT: "7801"
+      BROKER_ID: "fed-sd-trabalho"
+      REGISTRY_HOST: "localhost"
+      REGISTRY_PORT: "7800"
+
+  ufscar:
+    dir: "ufscar-sd"
+    registry_port: 7900
+    broker_base: 7901
+    xpub_txt: 7901
+    xpub_aud: 7902
+    xpub_vid: 7903
+    inject_port: 7904
+    inject_type: "MSGPACK"
+    launch:
+      registry: "python examples/start_discovery.py"
+      broker: "python examples/start_broker.py"
+    env:
+      DISCOVERY_PORT: "7900"
+      BROKER_TEXT_PUB_PORT: "7901"
+      BROKER_AUDIO_PUB_PORT: "7902"
+      BROKER_VIDEO_PUB_PORT: "7903"
+      BROKER_CONTROL_PORT: "7904"
+      BROKER_HEARTBEAT_PORT: "7905"
+      BROKER_AUDIO_INPUT_PORT: "7906"
+      BROKER_VIDEO_INPUT_PORT: "7907"
+
+  videoconf:
+    dir: "videoconf_dist/src"
+    registry_port: null
+    broker_base: 8000
+    xpub_txt: 8001
+    xpub_aud: 8001
+    xpub_vid: 8001
+    inject_port: 8000
+    inject_type: "PUB"
+    launch:
+      broker: "python broker/broker_central.py --xsub-port 8000 --xpub-port 8001 --auth-port 8002"
+    env: {}

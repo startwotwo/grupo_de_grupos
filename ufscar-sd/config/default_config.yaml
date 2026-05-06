@@ -1,0 +1,40 @@
+discovery:
+  port: 5555
+  host: "localhost"
+
+broker:
+  text_pub_port: 5556
+  audio_pub_port: 5557
+  video_pub_port: 5558
+  control_port: 5559
+  inter_broker_port: 5560
+  heartbeat_port: 5561
+
+heartbeat:
+  client_interval: 2.0
+  broker_interval: 1.0
+  timeout: 5.0
+
+qos:
+  text:
+    retry_max: 3
+    retry_backoff: 0.5
+  audio:
+    buffer_ms: 100
+  video:
+    buffer_frames: 30
+    min_quality: 20
+    max_quality: 90
+
+groups:
+  - "A"
+  - "B"
+  - "C"
+  - "D"
+  - "E"
+  - "F"
+  - "G"
+  - "H"
+  - "I"
+  - "J"
+  - "K"

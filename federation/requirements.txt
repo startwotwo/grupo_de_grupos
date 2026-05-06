@@ -1,0 +1,14 @@
+pyzmq>=25.0
+opencv-python>=4.8.0
+pyaudio>=0.2.13
+numpy>=1.24.0
+Pillow>=10.0
+ttkbootstrap
+msgpack>=1.0.5
+pyyaml>=6.0
+sounddevice>=0.4.6
+cffi
+pycparser
+
+
+

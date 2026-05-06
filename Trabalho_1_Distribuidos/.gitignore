@@ -1,0 +1,8 @@
+requisitos.md
+readme.md
+cliente_a.py
+cliente_b.py
+planoArquitetura.pdf
+__pycache__/
+*.pyc
+.venv/

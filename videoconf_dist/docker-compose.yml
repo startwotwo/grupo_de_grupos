@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  broker:
+    build: .
+    command: python src/broker/broker_central.py
+    ports:
+      - "5555:5555"
+      - "5556:5556"
+      - "5557:5557"
+    environment:
+      PYTHONUNBUFFERED: 1
+
+#  user1_audio:
+#    build: .
+#    command: python src/client/client_audio.py user1 SALA_A
+#    depends_on:
+#      - broker
+#    environment:
+#      BROKER_HOST: "broker"
+#      PYTHONUNBUFFERED: 1
+#    devices:
+#      - "/dev/snd:/d#ev/snd"
+#    privileged: true
+
+#  user2_audio:
+#    build: .
+#    command: python src/client/client_audio.py user2 SALA_A
+#    depends_on:
+#      - broker
+#    environment:
+#      BROKER_HOST: "broker"
+#      PYTHONUNBUFFERED: 1
+#    devices:
+#      - "/dev/snd:/dev/snd"
+#    privileged: true
+
+  user1_text:
+    build: .
+    command: python src/client/client.py user1 SALA_A
+    depends_on:
+      - broker
+    environment:
+      BROKER_HOST: "broker"
+      PYTHONUNBUFFERED: 1
+
+  user2_text:
+    build: .
+    command: python src/client/client.py user2 SALA_A
+    depends_on:
+      - broker
+    environment:
+      BROKER_HOST: "broker"
+      PYTHONUNBUFFERED: 1

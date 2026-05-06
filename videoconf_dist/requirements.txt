@@ -1,0 +1,7 @@
+cffi==2.0.0
+numpy==2.4.4
+opencv-python==4.13.0.92
+pycparser==3.0
+pyzmq==25.1.2
+sounddevice==0.4.6
+numpy

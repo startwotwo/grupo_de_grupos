@@ -1,0 +1,57 @@
+# ==========================================
+# Python: Arquivos compilados e de cache
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==========================================
+# Ambientes Virtuais e Variáveis de Ambiente
+# ==========================================
+venv/
+.venv/
+env/
+.env
+
+# ==========================================
+# IDEs e Editores
+# ==========================================
+# VS Code
+.vscode/
+*.code-workspace
+# Outros editores comuns (caso alguém da equipe use)
+.idea/
+*.swp
+*.swo
+
+# ==========================================
+# Logs e Arquivos Temporários
+# ==========================================
+*.log
+tmp/
+temp/
+
+# ==========================================
+# Sistema Operacional
+# ==========================================
+# Windows
+Thumbs.db
+ehthumbs.db
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ==========================================
+# Específicos do Projeto (Opcional/Futuro)
+# ==========================================
+# Descomente abaixo se vocês começarem a gerar arquivos de teste de mídia
+# *.mp4
+# *.wav
+# *.avi
+
+# Se decidirem compilar arquivos Protobuf localmente e não quiserem versionar os binários gerados
+# *_pb2.py
+# *_pb2.pyi
+# *_pb2_grpc.py

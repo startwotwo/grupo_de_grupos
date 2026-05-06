@@ -1,0 +1,54 @@
+broker:
+  text:
+    pub_port: 5551      # broker PUB → clients SUB
+    pull_port: 5552     # clients PUSH → broker PULL
+  audio:
+    pub_port: 5553
+    pull_port: 5554
+  video:
+    pub_port: 5555
+    pull_port: 5556
+  control_port: 5560    # ROUTER (broker) ↔ DEALER (client) para login/ack/leave
+  inter_broker_base_port: 5600   # ROUTER recebe de peers; DEALER envia a peers
+  heartbeat_base_port: 5700      # PUB heartbeat entre brokers
+  port_stride: 100      # broker N usa base_port + N * stride
+
+registry:
+  port: 7500
+broker:
+  text: { pub_port: 7501, pull_port: 7502 }
+  audio: { pub_port: 7503, pull_port: 7504 }
+  video: { pub_port: 7505, pull_port: 7506 }
+  control_port: 7510
+  port_stride: 100
+
+cluster:
+  heartbeat_interval: 2.0  # intervalo entre heartbeats (segundos)
+  heartbeat_timeout: 5.0
+  all_rooms: [A, B, C, D, E, F, G, H, I, J, K]
+  rooms_per_broker: 4       # quantas salas cada broker gerencia
+
+client:
+  registry_host: null     # override registry host for clients (null = use registry.host)
+  audio:
+    rate: 44100
+    channels: 1
+    chunk: 1024
+  video:
+    device_index: 0
+    frame_width: 640
+    frame_height: 480
+
+qos:
+  text:
+    max_retry: 5
+    retry_interval: 0.2    # segundos entre tentativas de reenvio
+    ack_timeout: 2.0       # timeout para ACK do broker
+  audio:
+    max_queue_depth: 10    # frames antes de descartar mais antigos
+  video:
+    max_queue_depth: 3
+    base_fps: 15
+    min_fps: 5
+    jpeg_quality: 70
+    min_jpeg_quality: 30
