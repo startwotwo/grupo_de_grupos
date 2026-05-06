@@ -494,7 +494,7 @@ class DistributedBroker:
 
         if action == "login":
             user_id = (req.get("user_id") or "").strip()
-            room = (req.get("room") or "geral").strip().lower()
+            room = (req.get("room") or "a").strip().lower()
             if not user_id:
                 return {"ok": False, "error": "invalid_user_id"}
             # if self._is_user_taken(user_id):

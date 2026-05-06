@@ -112,8 +112,8 @@ class SuperBroker:
             if len(msg) >= 2:
                 try:
                     raw = msg[1].decode("utf-8")
-                    if raw.startswith("["):
-                        return None
+                    if raw.startswith("[") and "]: " in raw:
+                        return None  # é relay de federação
                     result = raw.split(": ", 1)[1] if ": " in raw else raw
                     if not result.strip():
                         return None
@@ -123,6 +123,7 @@ class SuperBroker:
                 except UnicodeDecodeError:
                     return None
             return None
+
 
         if origin_group == "googlemeet":
             parts = topic_str.split("|", 2)
@@ -191,9 +192,6 @@ class SuperBroker:
                         return payload, room
             return None
 
-        if text.strip():
-            return text, "A"
-
         return None
 
     def _inject(self, target_group: str, origin_group: str, msg: list, canonical_room: str):
@@ -206,10 +204,10 @@ class SuperBroker:
             return
         text, _ = result
 
-        if target_group in ("grupo_i", "googlemeet", "videoconf"):
+        if target_group == "grupo_i":
             room = f"ROOM_{canonical_room}"
         elif target_group == "sd_trab1":
-            room = "geral"
+            room = canonical_room.lower()
         else:
             room = canonical_room
 
@@ -258,8 +256,11 @@ class SuperBroker:
                 sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
 
             elif target_group == "t1sistemas":
-                topic = f"sala_{canonical_room}:[{origin_group}]".encode()
-                sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
+                sock.send_multipart(
+                    [canonical_room.encode(), f"[{origin_group}]: {text}".encode()],
+                    flags=zmq.NOBLOCK
+                )
+
 
             elif target_group == "sd_trab1":
                 topic = f"texto:{room}:[{origin_group}]".encode()
@@ -330,9 +331,21 @@ class SuperBroker:
 
                 gname, channel, fed_pub = channel_map[sock]
 
-                fed_msg = list(msg)
-                fed_msg[0] = f"{gname}/".encode() + msg[0]
-                fed_pub.send_multipart(fed_msg)
+                if gname == "trabalho1" and len(msg) >= 3:
+                    try:
+                        msg[2].decode("utf-8")
+                        fed_pub = self.fed_txt_xpub
+                    except UnicodeDecodeError:
+                        fed_pub = None
+
+                if gname == "grupo_i":
+                    if "VIDEO" in topic_str or "AUDIO" in topic_str:
+                        fed_pub = None
+
+                if fed_pub is not None:
+                    fed_msg = list(msg)
+                    fed_msg[0] = f"{gname}/".encode() + msg[0]
+                    fed_pub.send_multipart(fed_msg)
 
                 if gname not in RELAY_GROUPS:
                     continue

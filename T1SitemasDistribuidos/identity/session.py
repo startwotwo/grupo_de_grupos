@@ -9,7 +9,11 @@ log = logging.getLogger(__name__)
 
 class Session:
     def __init__(self, nome: str, sala: str = "A", on_reconnect=None, registry_host: str = "localhost"):
-        self.registry_addr = f"tcp://{registry_host}:5555"
+        if ":" in registry_host:
+            self.registry_addr = f"tcp://{registry_host}"
+        else:
+            self.registry_addr = f"tcp://{registry_host}:5555"
+
         self.nome = nome
         self.sala = sala
         self.user_id = f"{nome}_{uuid.uuid4().hex[:4]}"
