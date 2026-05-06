@@ -23,6 +23,7 @@ PORTS_FILE = FED_DIR / "ports.yaml"
 RELAY_GROUPS = {
     "grupo_i", "expansion", "googlemeet", "sd_meeting",
     "trabalho1", "sd_trabalho", "t1sistemas", "sd_trab1", "videoconf",
+    "ufscar",
 }
 
 
@@ -75,9 +76,17 @@ class SuperBroker:
         for gname, gcfg in self.groups.items():
             port = gcfg.get("inject_port")
             itype = gcfg.get("inject_type", "PUB")
-            if not port or itype == "MSGPACK":
+            if not port:
                 continue
-            s = self.ctx.socket(zmq.PUSH if itype == "PUSH" else zmq.PUB)
+            if itype == "MSGPACK":
+                # ufscar: control port is ROUTER — use DEALER to send text Messages
+                s = self.ctx.socket(zmq.DEALER)
+                s.setsockopt(zmq.LINGER, 0)
+                s.setsockopt(zmq.SNDTIMEO, 100)
+            elif itype == "PUSH":
+                s = self.ctx.socket(zmq.PUSH)
+            else:
+                s = self.ctx.socket(zmq.PUB)
             s.connect(f"tcp://localhost:{port}")
             self.group_inject[gname] = s
             print(f"[SuperBroker] inject {gname}: {itype}->{port}")
@@ -136,20 +145,54 @@ class SuperBroker:
             return None
 
         if origin_group == "videoconf":
-            if "|" in topic_str:
-                text = topic_str.split("|", 1)[1]
-                if not text.strip():
+            raw = msg[0]
+            pipe = raw.find(b"|")
+            if pipe < 0:
+                return None
+            header = raw[:pipe].decode("utf-8", errors="replace")
+            parts = header.split(":")
+            if len(parts) < 3:
+                return None
+            if parts[1] != "TEXTO":
+                return None  # filtra AUDIO/VIDEO/HEARTBEAT — binário não deve virar texto
+            sender = parts[2]
+            if sender == "SISTEMA" or sender.startswith("["):
+                return None
+            try:
+                text = raw[pipe + 1:].decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+            if not text.strip():
+                return None
+            return text, normalize_room(parts[0])
+
+        if origin_group == "ufscar":
+            if len(msg) < 2 or not _MSGPACK_OK:
+                return None
+            try:
+                data = msgpack.unpackb(msg[1], raw=False)
+                if data.get("type") != 1:  # MessageType.TEXT = 1
                     return None
-                room_part = topic_str.split(":")[0]
-                return text, normalize_room(room_part)
-            return None
+                if str(data.get("sender_id", "")).startswith("["):
+                    return None  # federation echo
+                payload = data.get("payload", b"")
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8", errors="replace")
+                if not payload:
+                    return None
+                group = data.get("group") or "A"
+                return payload, normalize_room(group)
+            except Exception:
+                return None
 
         if origin_group == "sd_trabalho":
             if len(msg) < 2 or not _MSGPACK_OK:
                 return None
             try:
                 data = msgpack.unpackb(msg[1], raw=False)
-                if not isinstance(data, dict) or data.get("type") not in ("text", None):
+                if not isinstance(data, dict) or data.get("type") != "text":
+                    return None
+                if data.get("origin") == "federation":
                     return None
                 payload = data.get("data", "")
                 if isinstance(payload, bytes):
@@ -252,8 +295,20 @@ class SuperBroker:
                 )
 
             elif target_group == "sd_trabalho":
-                topic = f"fed_room:[{origin_group}]".encode()
-                sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
+                if not _MSGPACK_OK:
+                    return
+                topic = f"{canonical_room}.text".encode()
+                payload = msgpack.packb({
+                    "v": 1,
+                    "id": str(_uuid.uuid4()),
+                    "type": "text",
+                    "from": f"[{origin_group}]",
+                    "room": canonical_room,
+                    "ts": time.time(),
+                    "data": text,
+                    "origin": "federation",
+                }, use_bin_type=True)
+                sock.send_multipart([topic, payload], flags=zmq.NOBLOCK)
 
             elif target_group == "t1sistemas":
                 sock.send_multipart(
@@ -271,6 +326,23 @@ class SuperBroker:
                     "origin": "federation",
                 }).encode()
                 sock.send_multipart([topic, payload], flags=zmq.NOBLOCK)
+
+            elif target_group == "ufscar":
+                if not _MSGPACK_OK:
+                    return
+                payload = msgpack.packb({
+                    "type": 1,  # MessageType.TEXT
+                    "sender_id": f"[{origin_group}]",
+                    "timestamp": time.time(),
+                    "payload": text.encode("utf-8"),
+                    "message_id": str(_uuid.uuid4()),
+                    "group": canonical_room,
+                    "recipient": None,
+                    "sequence": 0,
+                    "qos_level": 0,
+                    "control_type": None,
+                }, use_bin_type=True)
+                sock.send(payload, flags=zmq.NOBLOCK)
 
             elif target_group == "videoconf":
                 frame = f"{room}:TEXTO:[{origin_group}]:0|{text}".encode()

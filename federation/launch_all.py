@@ -77,6 +77,8 @@ def kill_previous(cfg: dict):
         for ch in ("xpub_txt", "xpub_aud", "xpub_vid"):
             if gcfg.get(ch):
                 ports.add(gcfg[ch])
+        for p in gcfg.get("extra_kill_ports", []):
+            ports.add(p)
 
     print(f"[launch] Liberando {len(ports)} portas de execuções anteriores...")
     for port in ports:

@@ -128,6 +128,7 @@ groups:
     env:
       BROKER_BASE_PORT: "7801"
       BROKER_ID: "fed-sd-trabalho"
+      BROKER_ADVERTISE_HOST: "localhost"
       REGISTRY_HOST: "localhost"
       REGISTRY_PORT: "7800"
 
