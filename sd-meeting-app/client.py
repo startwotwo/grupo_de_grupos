@@ -376,46 +376,70 @@ class GUIClientSession:
     # Threads ZMQ — comunicação via _gui_q
     # ------------------------------------------------------------------
 
-    def _th_text_send(self):
-        """Envia mensagens de texto da fila QoS."""
+    def _th_text_send(self, sock: zmq.Socket):
         while not self._stop.is_set():
-            data = self._text_qos.get_next(timeout=0)
-            if data:
+            while True:
+                data = self._text_qos.get_next(timeout=0)
+                if data is None:
+                    break
                 try:
-                    self._socks["text_push"].send(data, flags=zmq.NOBLOCK)
+                    sock.send(data, flags=zmq.NOBLOCK)
                 except Exception:
                     pass
-            else:
-                self._stop.wait(0.05)
 
-    def _th_text_recv(self):
-        """Recebe mensagens de texto e presença, enfileira na _gui_q."""
+            try:
+                line = input(f"[{self.username}] > ")
+            except EOFError:
+                break
+            content = line.strip()
+            if not content:
+                continue
+            self._text_qos.send({
+                "v": 1, "type": "text",
+                "msg_id":    str(uuid.uuid4()),
+                "room":      self.room,
+                "sender_id": self.client_id,
+                "username":  self.username,
+                "content":   content,
+                "ts":        time.time(),
+            })
+
+
+    def _th_text_recv(self, sock: zmq.Socket):
+        print(f"[DEBUG recv] thread iniciada, assinando text:{self.room}")
         poller = zmq.Poller()
-        poller.register(self._socks["text_sub"], zmq.POLLIN)
+        poller.register(sock, zmq.POLLIN)
         while not self._stop.is_set():
             evts = dict(poller.poll(timeout=500))
-            if self._socks["text_sub"] not in evts:
+            if sock not in evts:
                 continue
-            frames = self._socks["text_sub"].recv_multipart()
+            frames = sock.recv_multipart()
+            print(f"[DEBUG recv] {len(frames)} frames: {[f[:50] for f in frames]}")
+
             if len(frames) < 2:
                 continue
-            try:
-                msg = json.loads(frames[1])
-            except Exception:
+            # broker publica [topic, payload] ou [topic, meta, payload]
+            msg = None
+            for frame in frames[1:]:
+                try:
+                    candidate = json.loads(frame)
+                    if isinstance(candidate, dict) and candidate.get("type") in ("text", "presence"):
+                        msg = candidate
+                        break
+                except Exception:
+                    continue
+            if msg is None:
                 continue
             t = msg.get("type")
             if t == "text" and msg.get("sender_id") != self.client_id:
-                self._gui_q.put({
-                    "type":     "text",
-                    "username": msg.get("username", "?"),
-                    "content":  msg.get("content", ""),
-                    "ts":       msg.get("ts", time.time()),
-                })
+                ts = time.strftime("%H:%M:%S", time.localtime(msg.get("ts", time.time())))
+                print(f"\n[{ts}] {msg.get('username', '?')}: {msg.get('content', '')}")
+                print(f"[{self.username}] > ", end="", flush=True)
             elif t == "presence":
-                self._gui_q.put({
-                    "type":    "presence",
-                    "members": msg.get("members", {}),
-                })
+                members = msg.get("members", {})
+                print(f"\n[Presença] Sala {msg.get('room')}: {list(members.values())}")
+                print(f"[{self.username}] > ", end="", flush=True)
+
 
     def _th_ctrl_recv(self):
         """Recebe ACKs de controle."""
@@ -803,6 +827,7 @@ class ClientSession:
             })
 
     def _th_text_recv(self, sock: zmq.Socket):
+        # print(f"[DEBUG recv] thread iniciada, assinando text:{self.room}")
         poller = zmq.Poller()
         poller.register(sock, zmq.POLLIN)
         while not self._stop.is_set():
@@ -810,23 +835,27 @@ class ClientSession:
             if sock not in evts:
                 continue
             frames = sock.recv_multipart()
+            # print(f"[DEBUG recv] {len(frames)} frames: {[f[:50] for f in frames]}")
             if len(frames) < 2:
                 continue
-            try:
-                msg = json.loads(frames[1])
-            except Exception:
+            msg = None
+            for frame in frames[1:]:
+                try:
+                    candidate = json.loads(frame)
+                    if isinstance(candidate, dict) and candidate.get("type") in ("text", "presence"):
+                        msg = candidate
+                        break
+                except Exception:
+                    continue
+            if msg is None:
                 continue
             t = msg.get("type")
             if t == "text" and msg.get("sender_id") != self.client_id:
-                ts = time.strftime("%H:%M:%S",
-                                   time.localtime(msg.get("ts", time.time())))
+                ts = time.strftime("%H:%M:%S", time.localtime(msg.get("ts", time.time())))
                 print(f"\n[{ts}] {msg.get('username','?')}: {msg.get('content','')}")
-                print(f"[{self.username}] > ", end="", flush=True)
             elif t == "presence":
                 members = msg.get("members", {})
-                print(f"\n[Presença] Sala {msg.get('room')}: "
-                      f"{list(members.values())}")
-                print(f"[{self.username}] > ", end="", flush=True)
+                print(f"\n[Presença] Sala {msg.get('room')}: {list(members.values())}")
 
     def _th_ctrl_recv(self, sock: zmq.Socket):
         """Recebe ACKs e outras mensagens de controle do broker."""
@@ -995,7 +1024,6 @@ class ClientSession:
         self._stop.clear()
         self._threads = []
         specs = [
-            ("text-send",  self._th_text_send,  socks["text_push"]),
             ("text-recv",  self._th_text_recv,  socks["text_sub"]),
             ("ctrl-recv",  self._th_ctrl_recv,  socks["ctrl"]),
             ("audio-send", self._th_audio_send, socks["audio_push"]),
@@ -1004,6 +1032,7 @@ class ClientSession:
             ("video-recv", self._th_video_recv, socks["video_sub"]),
             ("hb-monitor", self._th_hb_monitor, socks["hb_sub"]),
         ]
+
         for name, fn, sock in specs:
             t = threading.Thread(target=fn, args=(sock,),
                                  name=name, daemon=True)
@@ -1042,11 +1071,34 @@ class ClientSession:
                 continue
 
             self._start_threads(socks)
-            print(f"[{self.username}] > ", end="", flush=True)
 
             try:
                 while not self._stop.is_set():
-                    time.sleep(0.3)
+                    try:
+                        content = input(f"[{self.username}] > ")
+                    except EOFError:
+                        self._stop.set()
+                        quit_flag = True
+                        break
+                    if self._stop.is_set():
+                        break
+                    content = content.strip()
+                    if not content:
+                        continue
+                    data = json.dumps({
+                        "v": 1, "type": "text",
+                        "msg_id":    str(uuid.uuid4()),
+                        "room":      self.room,
+                        "sender_id": self.client_id,
+                        "username":  self.username,
+                        "content":   content,
+                        "ts":        time.time(),
+                    }).encode()
+                    try:
+                        socks["text_push"].send(data, flags=zmq.NOBLOCK)
+                    except Exception:
+                        pass
+
             except KeyboardInterrupt:
                 print("\n[Client] Encerrando.")
                 self._stop.set()
@@ -1056,11 +1108,11 @@ class ClientSession:
             self._close_sockets(socks)
 
             if not quit_flag:
-                # _stop foi setado por hb_monitor → reconectar
                 print("[Client] Reconectando em 2 s... [RECONNECTING]")
                 time.sleep(2)
                 self._stop.clear()
                 self.broker = None
+
 
 
 # ---------------------------------------------------------------------------

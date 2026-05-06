@@ -5,25 +5,37 @@ SuperBroker — interconexão entre todos os grupos da federação.
 import json
 import threading
 import time
+import uuid as _uuid
 from pathlib import Path
 
 import yaml
 import zmq
 
+try:
+    import msgpack
+    _MSGPACK_OK = True
+except ImportError:
+    _MSGPACK_OK = False
+
 FED_DIR = Path(__file__).parent
 PORTS_FILE = FED_DIR / "ports.yaml"
 
-# Grupos com relay bidirecional ativo.
-# Adicione aqui para habilitar relay entre novos pares.
 RELAY_GROUPS = {
     "grupo_i", "expansion", "googlemeet", "sd_meeting",
-    "trabalho1", "sd_trabalho", "t1sistemas",
+    "trabalho1", "sd_trabalho", "t1sistemas", "sd_trab1", "videoconf",
 }
 
 
 def load_ports():
     with open(PORTS_FILE) as f:
         return yaml.safe_load(f)
+
+
+def normalize_room(room: str) -> str:
+    room = room.upper().strip()
+    if room.startswith("ROOM_"):
+        room = room[5:]
+    return room
 
 
 class SuperBroker:
@@ -42,7 +54,6 @@ class SuperBroker:
         self.fed_vid_xsub = self._bind(zmq.XSUB, sb["vid_xsub"])
         self.fed_vid_xpub = self._bind(zmq.XPUB, sb["vid_xpub"])
 
-        # SUBs de leitura — um por porta única por grupo
         self.group_subs: dict[str, dict[str, zmq.Socket]] = {}
         for gname, gcfg in self.groups.items():
             subs = {}
@@ -58,8 +69,8 @@ class SuperBroker:
                 subs[channel] = s
             if subs:
                 self.group_subs[gname] = subs
+                print(f"[SuperBroker] {gname}: {[(ch, gcfg.get(f'xpub_{ch}')) for ch in subs]}")
 
-        # Sockets de injeção
         self.group_inject: dict[str, zmq.Socket] = {}
         for gname, gcfg in self.groups.items():
             port = gcfg.get("inject_port")
@@ -79,108 +90,193 @@ class SuperBroker:
         s.bind(f"tcp://*:{port}")
         return s
 
-    def _extract_text(self, payload: bytes, origin_group: str) -> str | None:
-        """Extrai o texto puro do payload, independente do formato do grupo."""
-        try:
-            text = payload.decode("utf-8")
-        except UnicodeDecodeError:
-            return None  # bytes binários (áudio/vídeo) — ignora
+    def _extract_text(self, msg: list, origin_group: str) -> tuple[str, str] | None:
+        topic_str = msg[0].decode("utf-8", errors="replace")
 
-        # GrupoI: JSON com campo "text"
+        if origin_group == "trabalho1":
+            if len(msg) >= 3:
+                try:
+                    sender = msg[1].decode("utf-8")
+                    if sender.startswith("["):
+                        return None
+                    text = msg[2].decode("utf-8")
+                    if not text.strip():
+                        return None
+                    room = normalize_room(msg[0].decode("utf-8"))
+                    return text, room
+                except UnicodeDecodeError:
+                    return None
+            return None
+
+        if origin_group == "t1sistemas":
+            if len(msg) >= 2:
+                try:
+                    raw = msg[1].decode("utf-8")
+                    if raw.startswith("["):
+                        return None
+                    result = raw.split(": ", 1)[1] if ": " in raw else raw
+                    if not result.strip():
+                        return None
+                    room_part = topic_str.split(":")[0]
+                    room = normalize_room(room_part.replace("sala_", ""))
+                    return result, room
+                except UnicodeDecodeError:
+                    return None
+            return None
+
+        if origin_group == "googlemeet":
+            parts = topic_str.split("|", 2)
+            if len(parts) == 3:
+                text = parts[2]
+                if text in ("__PRESENCE__", "saiu da ligação", "") or text.startswith("__"):
+                    return None
+                room_part = parts[0].replace("TXT/", "")
+                return text, normalize_room(room_part)
+            return None
+
+        if origin_group == "videoconf":
+            if "|" in topic_str:
+                text = topic_str.split("|", 1)[1]
+                if not text.strip():
+                    return None
+                room_part = topic_str.split(":")[0]
+                return text, normalize_room(room_part)
+            return None
+
+        if origin_group == "sd_trabalho":
+            if len(msg) < 2 or not _MSGPACK_OK:
+                return None
+            try:
+                data = msgpack.unpackb(msg[1], raw=False)
+                if not isinstance(data, dict) or data.get("type") not in ("text", None):
+                    return None
+                payload = data.get("data", "")
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8", errors="replace")
+                if not payload:
+                    return None
+                room = normalize_room(data.get("room", "A"))
+                return str(payload), room
+            except Exception:
+                return None
+
+        if len(msg) < 2:
+            return None
+
+        try:
+            text = msg[1].decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
         try:
             data = json.loads(text)
             if isinstance(data, dict):
-                # Ignora mensagens de presença e heartbeat
-                if data.get("text") in ("__PRESENCE__", None):
-                    return None
                 if data.get("origin") == "federation":
-                    return None  # já é relay — ignora
-                return data.get("text") or data.get("content") or data.get("msg")
+                    return None
+                result = data.get("text") or data.get("content") or data.get("msg")
+                if result in ("__PRESENCE__", None, ""):
+                    return None
+                room = normalize_room(data.get("room", "A"))
+                return result, room
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        # Expansion: "sender:texto"
-        if ":" in text and not text.startswith("{"):
-            parts = text.split(":", 1)
-            if len(parts) == 2:
-                return parts[1]
+        if origin_group == "expansion":
+            parts = topic_str.split(":")
+            if len(parts) >= 3:
+                room = normalize_room(parts[2])
+                if ":" in text and not text.startswith("{"):
+                    payload = text.split(":", 1)[1]
+                    if payload.strip():
+                        return payload, room
+            return None
 
-        # Texto puro
-        if text.strip() and not text.startswith("{"):
-            return text
+        if text.strip():
+            return text, "A"
 
         return None
 
-    def _inject(self, target_group: str, origin_group: str, raw_payload: bytes):
-        """Reinjeta mensagem de texto no target_group no formato que ele espera."""
+    def _inject(self, target_group: str, origin_group: str, msg: list, canonical_room: str):
         sock = self.group_inject.get(target_group)
         if not sock:
             return
 
-        text = self._extract_text(raw_payload, origin_group)
-        if not text or not text.strip():
+        result = self._extract_text(msg, origin_group)
+        if not result:
             return
+        text, _ = result
 
-        gcfg = self.groups[target_group]
-        itype = gcfg.get("inject_type", "PUB")
+        if target_group in ("grupo_i", "googlemeet", "videoconf"):
+            room = f"ROOM_{canonical_room}"
+        elif target_group == "sd_trab1":
+            room = "geral"
+        else:
+            room = canonical_room
+
         sender = f"[{origin_group}]"
 
         try:
             if target_group == "grupo_i":
-                # Espera: [topic, json] onde json tem action/room/user_id/text
                 meta = json.dumps({
-                    "action": "TEXT", "room": "ROOM_A",
+                    "action": "TEXT", "room": room,
                     "user_id": sender, "msg_id": 0,
                     "text": text, "origin": "federation",
                 }).encode()
-                sock.send_multipart([b"ROOM_A TEXT", meta], flags=zmq.NOBLOCK)
+                sock.send_multipart([f"{room} TEXT".encode(), meta], flags=zmq.NOBLOCK)
 
             elif target_group == "expansion":
-                # Espera: [topic, "sender:texto"]
-                # Tópico com [origem] para o filtro anti-loop funcionar
-                topic = f"text:FED_EXP:A:[{origin_group}]".encode()
-                payload = f"{sender}:{text}".encode()
-                sock.send_multipart([topic, payload], flags=zmq.NOBLOCK)
+                topic = f"text:FED_EXP:{canonical_room}:[{origin_group}]".encode()
+                sock.send_multipart([topic, f"{sender}:{text}".encode()], flags=zmq.NOBLOCK)
 
             elif target_group == "googlemeet":
-                # XSUB/XPUB — tópico com [origem] para anti-loop
-                topic = f"TXT/ROOM_A|[{origin_group}]|{text}".encode()
-                sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
+                topic = f"TXT/{room}|[{origin_group}]|{text}".encode()
+                sock.send(topic, flags=zmq.NOBLOCK)
 
             elif target_group == "sd_meeting":
-                # PUSH com [meta_json, payload_json]
                 meta = json.dumps({
-                    "room": "A", "sender_id": sender,
+                    "room": canonical_room, "sender_id": sender,
                     "msg_id": f"fed-{time.time()}", "v": 1,
                     "origin": "federation",
                 }).encode()
                 payload = json.dumps({
                     "v": 1, "type": "text",
                     "msg_id": f"fed-{time.time()}",
-                    "room": "A", "sender_id": sender,
+                    "room": canonical_room, "sender_id": sender,
                     "username": sender, "content": text,
                     "ts": time.time(), "origin": "federation",
                 }).encode()
                 sock.send_multipart([meta, payload], flags=zmq.NOBLOCK)
 
             elif target_group == "trabalho1":
-                # XSUB — tópico "SALA:TIPO:sender", payload texto puro
-                topic = f"ROOM_A:TEXTO:[{origin_group}]".encode()
-                sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
+                sock.send_multipart(
+                    [canonical_room.encode(), f"[{origin_group}]".encode(), text.encode()],
+                    flags=zmq.NOBLOCK
+                )
 
             elif target_group == "sd_trabalho":
-                # XSUB/XPUB — tópico com [origem] para anti-loop
                 topic = f"fed_room:[{origin_group}]".encode()
                 sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
 
             elif target_group == "t1sistemas":
-                # PUSH — [topic, payload]
-                topic = f"sala_A:[{origin_group}]".encode()
+                topic = f"sala_{canonical_room}:[{origin_group}]".encode()
                 sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
 
+            elif target_group == "sd_trab1":
+                topic = f"texto:{room}:[{origin_group}]".encode()
+                payload = json.dumps({
+                    "id": str(_uuid.uuid4()),
+                    "de": sender, "msg": text,
+                    "room": room, "ts": time.time(),
+                    "origin": "federation",
+                }).encode()
+                sock.send_multipart([topic, payload], flags=zmq.NOBLOCK)
+
+            elif target_group == "videoconf":
+                frame = f"{room}:TEXTO:[{origin_group}]:0|{text}".encode()
+                sock.send(frame, flags=zmq.NOBLOCK)
+
             else:
-                topic = f"FED_{origin_group}/".encode()
-                sock.send_multipart([topic, text.encode()], flags=zmq.NOBLOCK)
+                sock.send_multipart([f"FED_{origin_group}/".encode(), text.encode()], flags=zmq.NOBLOCK)
 
         except zmq.Again:
             pass
@@ -221,7 +317,6 @@ class SuperBroker:
                 except zmq.Again:
                     continue
 
-                # Anti-loop: ignora mensagens que já passaram pelo relay
                 topic_str = msg[0].decode(errors="replace")
                 if "[" in topic_str or topic_str.startswith("FED_"):
                     continue
@@ -235,32 +330,23 @@ class SuperBroker:
 
                 gname, channel, fed_pub = channel_map[sock]
 
-                # Publica no XPUB federado
                 fed_msg = list(msg)
                 fed_msg[0] = f"{gname}/".encode() + msg[0]
                 fed_pub.send_multipart(fed_msg)
 
-                # Relay de texto para todos os outros grupos ativos
                 if gname not in RELAY_GROUPS:
                     continue
 
-                # Detecta se é mensagem de texto pelo tópico
-                is_text = (
-                    "TEXT" in topic_str.upper() or
-                    topic_str.startswith("text:") or
-                    topic_str.startswith("texto:") or
-                    topic_str.startswith("TXT/") or
-                    topic_str.startswith("sala_") or
-                    topic_str.startswith("fed_room:")
-                )
-                if not is_text:
+                result = self._extract_text(msg, gname)
+                if result is None:
                     continue
 
-                payload = msg[1] if len(msg) > 1 else b""
+                text_preview, canonical_room = result
+                print(f"[relay] {gname} sala={canonical_room} texto={text_preview!r}")
 
                 for other_group in RELAY_GROUPS:
                     if other_group != gname:
-                        self._inject(other_group, gname, payload)
+                        self._inject(other_group, gname, msg, canonical_room)
 
     def start(self):
         threading.Thread(target=self._relay_loop, daemon=True).start()

@@ -102,15 +102,16 @@ groups:
   trabalho1:
     dir: "Trabalho_1_Distribuidos"
     registry_port: null
-    broker_base: 7700
-    xpub_txt: 7715
-    xpub_aud: 7713
-    xpub_vid: 7711
-    inject_port: 7714
+    broker_base: 5555
+    xpub_txt: 5560
+    xpub_aud: 5558
+    xpub_vid: 5556
+    inject_port: 5559
     inject_type: "PUB"
     launch:
-      broker: "python broker.py --vid-xsub 7710 --vid-xpub 7711 --aud-xsub 7712 --aud-xpub 7713 --txt-xsub 7714 --txt-xpub 7715 --ctrl-port 7716 --presence-port 7717"
+      broker: "python broker.py"   # sem args = usa portas padrão (5555-5562)
     env: {}
+
 
   sd_trabalho:
     dir: "sd-trabalho"
