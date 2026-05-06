@@ -43,7 +43,7 @@ if not connected:
 
 broker, _ = _c.get_current_broker()
 print(f"Conectado como {_c.USER_ID} na sala {_c.ROOM}")
-print(f"[debug] text_sub_out={broker['ports']['text_sub_out']} host={broker['host']}")
+# print(f"[debug] text_sub_out={broker['ports']['text_sub_out']} host={broker['host']}")
 
 
 def text_recv():
@@ -53,12 +53,12 @@ def text_recv():
     port = broker['ports']['text_sub_out']
     sub.connect(f"tcp://{host}:{port}")
     sub.setsockopt(zmq.SUBSCRIBE, f"texto:{_c.ROOM}:".encode("utf-8"))
-    print(f"[debug] assinando texto:{_c.ROOM}: em tcp://{host}:{port}")
+    # print(f"[debug] assinando texto:{_c.ROOM}: em tcp://{host}:{port}")
 
     while not stop_event.is_set():
         try:
             frames = sub.recv_multipart()
-            print(f"[debug] recebeu: {[f[:80] for f in frames]}")
+            # print(f"[debug] recebeu: {[f[:80] for f in frames]}")
             if len(frames) < 2:
                 continue
             try:
