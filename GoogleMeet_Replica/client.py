@@ -1,9 +1,10 @@
+import os
 import zmq
 import threading
 import time
 
-REGISTRY_HOST = "localhost"
-REGISTRY_PORT = 5550
+REGISTRY_HOST = os.environ.get("REGISTRY_HOST", "localhost")
+REGISTRY_PORT = int(os.environ.get("REGISTRY_PORT", "5550"))
 BROKER_TIMEOUT = 5   # segundos sem heartbeat → broker considerado morto
 
 class Cliente:

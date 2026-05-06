@@ -26,6 +26,7 @@ Status dos requisitos cobertos neste arquivo:
   [TODO]    ARQ04/ARQ05/ARQ06: heartbeat, timeouts e failover.
 """
 
+import os
 import zmq
 import threading
 import queue
@@ -43,7 +44,7 @@ from presenca import ClientePresenca, CTRL_PORT, PRESENCE_PORT
 
 global ID
 
-BROKER_HOST = "127.0.0.1"   # [TODO] RF06: substituir por service discovery.
+BROKER_HOST = os.environ.get("BROKER_HOST", "127.0.0.1")  # multi-PC: setar env BROKER_HOST
 SALAS_VALIDAS = [chr(c) for c in range(ord("A"), ord("K") + 1)]  # Grupos A–K
 
 # Parâmetros de captura (defaults)
@@ -326,14 +327,14 @@ def pubPacotes(contexto, fila_video, fila_audio, fila_texto, ID, sala_ref,
 
     video_pub = contexto.socket(zmq.PUB)
     video_pub.setsockopt(zmq.SNDHWM, 10)  # RNF03: drop de frames em caso de gargalo
-    video_pub.connect("tcp://127.0.0.1:5555")
+    video_pub.connect(f"tcp://{BROKER_HOST}:5555")
 
     audio_pub = contexto.socket(zmq.PUB)
     audio_pub.setsockopt(zmq.SNDHWM, 10)
-    audio_pub.connect("tcp://127.0.0.1:5557")
+    audio_pub.connect(f"tcp://{BROKER_HOST}:5557")
 
     texto_pub = contexto.socket(zmq.PUB)
-    texto_pub.connect("tcp://127.0.0.1:5559")
+    texto_pub.connect(f"tcp://{BROKER_HOST}:5559")
 
     time.sleep(0.5)  # slow-joiner: aguarda SUBs se conectarem antes de publicar
 
@@ -380,16 +381,16 @@ def subPacotes(contexto, fila_video, fila_audio, fila_texto, sala_ref,
 
     video_sub = contexto.socket(zmq.SUB)
     video_sub.setsockopt(zmq.RCVHWM, 10)
-    video_sub.connect("tcp://127.0.0.1:5556")
+    video_sub.connect(f"tcp://{BROKER_HOST}:5556")
     video_sub.setsockopt(zmq.SUBSCRIBE, sala_b)
 
     audio_sub = contexto.socket(zmq.SUB)
     audio_sub.setsockopt(zmq.RCVHWM, 10)
-    audio_sub.connect("tcp://127.0.0.1:5558")
+    audio_sub.connect(f"tcp://{BROKER_HOST}:5558")
     audio_sub.setsockopt(zmq.SUBSCRIBE, sala_b)
 
     texto_sub = contexto.socket(zmq.SUB)
-    texto_sub.connect("tcp://127.0.0.1:5560")
+    texto_sub.connect(f"tcp://{BROKER_HOST}:5560")
     texto_sub.setsockopt(zmq.SUBSCRIBE, sala_b)
 
     poller = zmq.Poller()

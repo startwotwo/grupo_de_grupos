@@ -1,4 +1,5 @@
 import json
+import os
 import queue
 import socket
 import sys
@@ -25,8 +26,8 @@ except Exception:
     pyaudio = None
 
 
-BROKER_HOST = "127.0.0.1"
-DISCOVERY_PORT = 6000
+BROKER_HOST = os.environ.get("BROKER_HOST", "127.0.0.1")  # multi-PC: setar BROKER_HOST se discovery falhar
+DISCOVERY_PORT = int(os.environ.get("DISCOVERY_PORT", "6000"))
 DISCOVERY_TIMEOUT = 8
 
 ctx = zmq.Context.instance()
@@ -157,6 +158,8 @@ def control_request(broker_info, payload, timeout_ms=1200):
     discovered_host = broker_info.get("host")
     if discovered_host:
         hosts.append(discovered_host)
+    if BROKER_HOST not in hosts:
+        hosts.append(BROKER_HOST)
     hosts.extend(["127.0.0.1", "localhost"])
 
     unique_hosts = []

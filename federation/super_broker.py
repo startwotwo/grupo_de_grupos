@@ -39,6 +39,10 @@ def normalize_room(room: str) -> str:
     return room
 
 
+def _group_host(gcfg: dict) -> str:
+    return gcfg.get("host") or "localhost"
+
+
 class SuperBroker:
     def __init__(self):
         cfg = load_ports()
@@ -57,6 +61,7 @@ class SuperBroker:
 
         self.group_subs: dict[str, dict[str, zmq.Socket]] = {}
         for gname, gcfg in self.groups.items():
+            host = _group_host(gcfg)
             subs = {}
             seen_ports = set()
             for channel in ("txt", "aud", "vid"):
@@ -66,11 +71,11 @@ class SuperBroker:
                 seen_ports.add(port)
                 s = self.ctx.socket(zmq.SUB)
                 s.setsockopt(zmq.SUBSCRIBE, b"")
-                s.connect(f"tcp://localhost:{port}")
+                s.connect(f"tcp://{host}:{port}")
                 subs[channel] = s
             if subs:
                 self.group_subs[gname] = subs
-                print(f"[SuperBroker] {gname}: {[(ch, gcfg.get(f'xpub_{ch}')) for ch in subs]}")
+                print(f"[SuperBroker] {gname}@{host}: {[(ch, gcfg.get(f'xpub_{ch}')) for ch in subs]}")
 
         self.group_inject: dict[str, zmq.Socket] = {}
         for gname, gcfg in self.groups.items():
@@ -78,6 +83,7 @@ class SuperBroker:
             itype = gcfg.get("inject_type", "PUB")
             if not port:
                 continue
+            host = _group_host(gcfg)
             if itype == "MSGPACK":
                 # ufscar: control port is ROUTER — use DEALER to send text Messages
                 s = self.ctx.socket(zmq.DEALER)
@@ -87,9 +93,9 @@ class SuperBroker:
                 s = self.ctx.socket(zmq.PUSH)
             else:
                 s = self.ctx.socket(zmq.PUB)
-            s.connect(f"tcp://localhost:{port}")
+            s.connect(f"tcp://{host}:{port}")
             self.group_inject[gname] = s
-            print(f"[SuperBroker] inject {gname}: {itype}->{port}")
+            print(f"[SuperBroker] inject {gname}: {itype}->{host}:{port}")
 
         time.sleep(1.0)
         print(f"[SuperBroker] Online — fed txt_xpub={sb['txt_xpub']}")

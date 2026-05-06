@@ -4,11 +4,18 @@ Launcher unificado da federação.
 Uso:
     python federation/launch_all.py [--groups grupo_i googlemeet ...]
     python federation/launch_all.py --list
+    python federation/launch_all.py --all-local           # ignora host filter
+    python federation/launch_all.py --host 192.168.1.10   # finge ser esse host
+
+Multi-PC: o launcher só sobe processos cujo `host` em ports.yaml bate com
+o host local (hostname / IPs das interfaces). Em cada PC, rodar este mesmo
+launcher — cada um sobe seu(s) grupo(s).
 """
 
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -23,6 +30,27 @@ PORTS_FILE = FED_DIR / "ports.yaml"
 CONFLICTING_STANDALONE = set()  # ambos agora aceitam portas via args
 
 
+def get_local_hosts(extra: str | None = None) -> set[str]:
+    """Conjunto de aliases que identificam o PC atual."""
+    hosts = {"localhost", "127.0.0.1", "0.0.0.0", "*", "", None}
+    try:
+        hostname = socket.gethostname()
+        hosts.add(hostname)
+        hosts.add(hostname.lower())
+        for info in socket.getaddrinfo(hostname, None):
+            hosts.add(info[4][0])
+    except OSError:
+        pass
+    if extra:
+        hosts.add(extra)
+        hosts.add(extra.lower())
+    return {h.lower() if isinstance(h, str) else h for h in hosts}
+
+
+def is_local(host: str | None, local_hosts: set[str]) -> bool:
+    if not host:
+        return True
+    return host.lower() in local_hosts
 
 
 def load_ports():
@@ -63,15 +91,20 @@ def kill_port(port: int, own_pid: int):
         subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
 
 
-def kill_previous(cfg: dict):
-    """Libera todas as portas da federação antes de subir."""
+def kill_previous(cfg: dict, local_hosts: set[str], run_fed_registry: bool, run_super: bool):
+    """Libera portas locais da federação antes de subir.
+    Só mata portas de serviços que vão rodar neste PC."""
     own_pid = os.getpid()
     ports = set()
-    ports.add(cfg["fed_registry_port"])
-    sb = cfg["super_broker"]
-    ports.update([sb["txt_xsub"], sb["txt_xpub"], sb["aud_xsub"],
-                  sb["aud_xpub"], sb["vid_xsub"], sb["vid_xpub"]])
+    if run_fed_registry:
+        ports.add(cfg["fed_registry_port"])
+    if run_super:
+        sb = cfg["super_broker"]
+        ports.update([sb["txt_xsub"], sb["txt_xpub"], sb["aud_xsub"],
+                      sb["aud_xpub"], sb["vid_xsub"], sb["vid_xpub"]])
     for gcfg in cfg["groups"].values():
+        if not is_local(gcfg.get("host"), local_hosts):
+            continue
         if gcfg.get("registry_port"):
             ports.add(gcfg["registry_port"])
         for ch in ("xpub_txt", "xpub_aud", "xpub_vid"):
@@ -80,7 +113,7 @@ def kill_previous(cfg: dict):
         for p in gcfg.get("extra_kill_ports", []):
             ports.add(p)
 
-    print(f"[launch] Liberando {len(ports)} portas de execuções anteriores...")
+    print(f"[launch] Liberando {len(ports)} portas locais de execuções anteriores...")
     for port in ports:
         kill_port(port, own_pid)
     time.sleep(1.5)
@@ -100,13 +133,23 @@ def start_process(name: str, cmd: str, cwd: Path, env: dict) -> subprocess.Popen
     )
 
 
+def _expand(cmd: str, gcfg: dict) -> str:
+    """Substitui {host} pelo host do grupo. Útil pro broker advertir IP real
+    em multi-PC sem precisar duplicar a string em ports.yaml."""
+    if not cmd:
+        return cmd
+    host = gcfg.get("host", "localhost")
+    return cmd.replace("{host}", host)
+
+
 def launch_group(name: str, cfg: dict, processes: list):
     group_dir = ROOT / cfg["dir"]
-    env = cfg.get("env") or {}
+    raw_env = cfg.get("env") or {}
+    env = {k: _expand(str(v), cfg) for k, v in raw_env.items()}
     launch = cfg["launch"]
 
     if launch.get("registry"):
-        p = start_process(f"{name}-registry", launch["registry"], group_dir, env)
+        p = start_process(f"{name}-registry", _expand(launch["registry"], cfg), group_dir, env)
         processes.append((f"{name}-registry", p))
         reg_port = cfg.get("registry_port")
         if reg_port:
@@ -116,7 +159,7 @@ def launch_group(name: str, cfg: dict, processes: list):
             time.sleep(1.5)
 
     if launch.get("broker"):
-        p = start_process(f"{name}-broker", launch["broker"], group_dir, env)
+        p = start_process(f"{name}-broker", _expand(launch["broker"], cfg), group_dir, env)
         processes.append((f"{name}-broker", p))
         xpub = cfg.get("xpub_txt")
         if xpub:
@@ -128,9 +171,14 @@ def launch_group(name: str, cfg: dict, processes: list):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--groups", nargs="*", help="Grupos a subir (padrão: todos)")
+    parser.add_argument("--groups", nargs="*", help="Grupos a subir (padrão: todos locais)")
     parser.add_argument("--list", action="store_true", help="Lista grupos disponíveis")
     parser.add_argument("--no-super", action="store_true", help="Não sobe o SuperBroker")
+    parser.add_argument("--no-fed-registry", action="store_true",
+                        help="Não sobe o FedRegistry (use se outro PC já hospeda)")
+    parser.add_argument("--all-local", action="store_true",
+                        help="Ignora campo host: trata todos os grupos como locais (modo single-PC)")
+    parser.add_argument("--host", help="Alias extra a considerar como host local")
     args = parser.parse_args()
 
     cfg = load_ports()
@@ -138,10 +186,28 @@ def main():
 
     if args.list:
         for name, gcfg in groups.items():
-            print(f"  {name:20s}  dir={gcfg['dir']}  registry={gcfg.get('registry_port')}  xpub_txt={gcfg.get('xpub_txt')}")
+            host = gcfg.get("host", "localhost")
+            print(f"  {name:20s}  host={host:20s}  dir={gcfg['dir']}  registry={gcfg.get('registry_port')}  xpub_txt={gcfg.get('xpub_txt')}")
         return
 
-    selected = set(args.groups) if args.groups else set(groups.keys())
+    local_hosts = get_local_hosts(args.host)
+    fed_reg_host = cfg.get("fed_registry_host", "localhost")
+    super_host = cfg.get("super_broker_host", "localhost")
+
+    run_fed_registry = (not args.no_fed_registry) and (args.all_local or is_local(fed_reg_host, local_hosts))
+    run_super = (not args.no_super) and (args.all_local or is_local(super_host, local_hosts))
+
+    if args.groups:
+        selected = set(args.groups)
+    else:
+        selected = {n for n, gcfg in groups.items()
+                    if args.all_local or is_local(gcfg.get("host"), local_hosts)}
+
+    if not selected and not run_super and not run_fed_registry:
+        print("[launch] Nenhum serviço deste host na ports.yaml.")
+        print(f"        Hosts locais detectados: {sorted(h for h in local_hosts if h)}")
+        print(f"        Use --all-local pra rodar tudo localmente, ou --host <alias>.")
+        return
 
     active_standalone = selected & CONFLICTING_STANDALONE
     if len(active_standalone) > 1:
@@ -149,26 +215,35 @@ def main():
         print("        Suba apenas um deles ou aplique o patch de porta.")
         selected -= set(list(active_standalone)[1:])
 
-    kill_previous(cfg)
+    kill_hosts = local_hosts
+    if args.all_local:
+        kill_hosts = local_hosts | {gcfg.get("host", "localhost").lower() for gcfg in groups.values()}
+    kill_previous(cfg, kill_hosts, run_fed_registry, run_super)
 
     processes = []
 
-    p = start_process("fed-registry", f'python "{FED_DIR / "registry_fed.py"}"', ROOT, {})
-    processes.append(("fed-registry", p))
-    ok = wait_port(cfg["fed_registry_port"], timeout=6)
-    print(f"  {'✓' if ok else '✗'} fed-registry porta {cfg['fed_registry_port']}")
+    if run_fed_registry:
+        p = start_process("fed-registry", f'python "{FED_DIR / "registry_fed.py"}"', ROOT, {})
+        processes.append(("fed-registry", p))
+        ok = wait_port(cfg["fed_registry_port"], timeout=6)
+        print(f"  {'✓' if ok else '✗'} fed-registry porta {cfg['fed_registry_port']}")
+    else:
+        print(f"[launch] FedRegistry remoto em {fed_reg_host}:{cfg['fed_registry_port']} (não subindo aqui)")
 
     for name in groups:
         if name not in selected:
             continue
         gcfg = groups[name]
+        if not args.all_local and not is_local(gcfg.get("host"), local_hosts):
+            print(f"\n[{name}] remoto em {gcfg.get('host')} — pulando")
+            continue
         print(f"\n[{name}]")
         try:
             launch_group(name, gcfg, processes)
         except Exception as e:
             print(f"  ✗ erro ao subir {name}: {e}")
 
-    if not args.no_super:
+    if run_super:
         print("\n[super_broker]")
         time.sleep(1)
         p = start_process("super-broker", f'python "{FED_DIR / "super_broker.py"}"', ROOT, {})
@@ -176,6 +251,8 @@ def main():
         sb = cfg["super_broker"]
         ok = wait_port(sb["txt_xpub"], timeout=8)
         print(f"  {'✓' if ok else '✗'} super-broker porta {sb['txt_xpub']}")
+    elif not args.no_super:
+        print(f"[launch] SuperBroker remoto em {super_host} (não subindo aqui)")
 
     print("\n=== FEDERAÇÃO ATIVA ===")
     print(f"SuperBroker txt_xpub : {cfg['super_broker']['txt_xpub']}")

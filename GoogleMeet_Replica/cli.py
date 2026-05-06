@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from client import Cliente
@@ -12,7 +13,8 @@ def on_msg(user, msg):
 client = Cliente(
     username, room,
     msgCallBack=on_msg,
-    registry_port=7200,
+    registry_host=os.environ.get("REGISTRY_HOST", "localhost"),
+    registry_port=int(os.environ.get("REGISTRY_PORT", "7200")),
 )
 
 # aguarda conexão

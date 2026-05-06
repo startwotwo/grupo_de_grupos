@@ -2,22 +2,48 @@ import json
 import msgpack  # pip install msgpack
 import threading
 import time
+from pathlib import Path
+
+import yaml
 import zmq
 
-PUBLISHERS = {
-    "grupo_i":    ("tcp://localhost:7102", b"ROOM_A TEXT",        "PUB"),
-    "googlemeet": ("tcp://localhost:7201", b"sala_test:",         "PUB"),
-    "expansion":  ("tcp://localhost:7305", b"text:FED_EXP:A:",    "PUB"),
-    "sd_trab1":   ("tcp://localhost:7423", b"texto:fed:test:",    "PUB"),
-    "sd_meeting": ("tcp://localhost:7502", None,                  "PUSH"),
-    "t1sistemas": ("tcp://localhost:7606", b"sala_test:",         "PUSH_T1"),  # ← PULL no broker
-    "trabalho1":  ("tcp://localhost:7714", b"SALA_FED:TEXTO:",    "PUB"),      # ← PUB simples, sem SUB trick
-    "sd_trabalho":("tcp://localhost:7801", b"fed_room:",          "PUB"),
-    "ufscar":     ("tcp://localhost:7904", None,                  "MSGPACK_CTRL"),
-    "videoconf":  ("tcp://localhost:8000", b"SALA_FED:TEXTO:",    "PUB"),
+PORTS_FILE = Path(__file__).parent / "ports.yaml"
+
+# (topic_prefix, sock_type) por grupo. Endpoint construído dinamicamente
+# a partir de ports.yaml (host + inject_port), pra rodar multi-PC.
+GROUP_PROTO = {
+    "grupo_i":    (b"ROOM_A TEXT",        "PUB"),
+    "googlemeet": (b"sala_test:",         "PUB"),
+    "expansion":  (b"text:FED_EXP:A:",    "PUB"),
+    "sd_trab1":   (b"texto:fed:test:",    "PUB"),
+    "sd_meeting": (None,                  "PUSH"),
+    "t1sistemas": (b"sala_test:",         "PUSH_T1"),
+    "trabalho1":  (b"SALA_FED:TEXTO:",    "PUB"),
+    "sd_trabalho":(b"fed_room:",          "PUB"),
+    "ufscar":     (None,                  "MSGPACK_CTRL"),
+    "videoconf":  (b"SALA_FED:TEXTO:",    "PUB"),
 }
 
-FED_XPUB = "tcp://localhost:8101"
+
+def _load_publishers():
+    with open(PORTS_FILE) as f:
+        cfg = yaml.safe_load(f)
+    pubs = {}
+    for gname, (prefix, stype) in GROUP_PROTO.items():
+        gcfg = cfg["groups"].get(gname)
+        if not gcfg:
+            continue
+        host = gcfg.get("host", "localhost")
+        port = gcfg.get("inject_port")
+        if not port:
+            continue
+        pubs[gname] = (f"tcp://{host}:{port}", prefix, stype)
+    sb_host = cfg.get("super_broker_host", "localhost")
+    sb_port = cfg["super_broker"]["txt_xpub"]
+    return pubs, f"tcp://{sb_host}:{sb_port}"
+
+
+PUBLISHERS, FED_XPUB = _load_publishers()
 received = {}
 lock = threading.Lock()
 

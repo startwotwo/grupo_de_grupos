@@ -1,9 +1,16 @@
 # Mapa canônico de portas da federação.
 # Cada grupo usa uma faixa de 100 portas a partir de sua base.
 # O SuperBroker conecta como SUB nos xpub de cada grupo.
+#
+# Multi-PC: cada grupo pode declarar `host: <IP/hostname>` indicando o PC
+# onde ele roda. Default = localhost (modo single-machine retrocompatível).
+# `fed_registry_host` / `super_broker_host` indicam onde esses serviços
+# centrais rodam. O launcher só sobe processos cujos hosts são locais.
 
+fed_registry_host: localhost
 fed_registry_port: 7777
 
+super_broker_host: localhost
 super_broker:
   txt_xsub: 8100   # clientes externos publicam texto aqui
   txt_xpub: 8101   # clientes externos assinam texto aqui
@@ -14,6 +21,7 @@ super_broker:
 
 groups:
   grupo_i:
+    host: localhost
     dir: "Sistemas_Distribuidos_GrupoI_Entrega1"
     registry_port: 7100
     broker_base: 7101
@@ -24,10 +32,11 @@ groups:
     inject_type: "PUB"
     launch:
       registry: "python registry.py --port 7100"
-      broker: "python broker.py --registry tcp://localhost:7100 --host localhost --port-base 7101"
+      broker: "python broker.py --registry tcp://localhost:7100 --host {host} --port-base 7101"
     env: {}
 
   googlemeet:
+    host: localhost
     dir: "GoogleMeet_Replica"
     registry_port: 7200
     broker_base: 7201
@@ -42,6 +51,7 @@ groups:
     env: {}
 
   expansion:
+    host: localhost
     dir: "."
     registry_port: 7300
     broker_base: 7301
@@ -56,6 +66,7 @@ groups:
     env: {}
 
   sd_trab1:
+    host: localhost
     dir: "sd-trab1"
     registry_port: null
     broker_base: 7400
@@ -70,6 +81,7 @@ groups:
     env: {}
 
   sd_meeting:
+    host: localhost
     dir: "sd-meeting-app"
     registry_port: 7500
     broker_base: 7501
@@ -85,6 +97,7 @@ groups:
       BROKER_CONFIG: "config_fed.yaml"
 
   t1sistemas:
+    host: localhost
     extra_kill_ports: [5555]
     dir: "T1SitemasDistribuidos"
     registry_port: 7650
@@ -100,6 +113,7 @@ groups:
     env: {}
 
   trabalho1:
+    host: localhost
     dir: "Trabalho_1_Distribuidos"
     registry_port: null
     broker_base: 5555
@@ -114,6 +128,7 @@ groups:
 
 
   sd_trabalho:
+    host: localhost
     dir: "sd-trabalho"
     registry_port: 7800
     broker_base: 7801
@@ -128,11 +143,12 @@ groups:
     env:
       BROKER_BASE_PORT: "7801"
       BROKER_ID: "fed-sd-trabalho"
-      BROKER_ADVERTISE_HOST: "localhost"
-      REGISTRY_HOST: "localhost"
+      BROKER_ADVERTISE_HOST: "{host}"
+      REGISTRY_HOST: "{host}"
       REGISTRY_PORT: "7800"
 
   ufscar:
+    host: localhost
     dir: "ufscar-sd"
     registry_port: 7900
     broker_base: 7901
@@ -155,6 +171,7 @@ groups:
       BROKER_VIDEO_INPUT_PORT: "7907"
 
   videoconf:
+    host: localhost
     dir: "videoconf_dist/src"
     registry_port: null
     broker_base: 8000
